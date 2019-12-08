@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric     #-}
 module Avtor where
 
 import           Data.Text
@@ -6,6 +7,9 @@ import qualified Data.Text as T
 import           Data.UUID
 import           Data.UUID.V4
 import           Control.Monad.IO.Class (liftIO)
+import           GHC.Generics
+import           Data.Aeson
+import           Control.Monad.Trans.Except
 
 type RegisterUser = RegisterReq -> IO (Either Text UnverUser)
 type VerifyUser   = VerifyReq   -> IO (Either Text User)
@@ -19,18 +23,21 @@ newtype VerToken
   = VerToken
   { verToken :: UUID
   }
-  deriving (Show)
+  deriving (Show,Generic)
 
 newtype AuthToken = AuthToken
   { authToken :: Text
   }
-  deriving (Show)
+  deriving (Show,Generic)
 
 newtype UserId
   = UserId
   { userId :: UUID 
   }
-  deriving (Show)
+  deriving (Generic,Show)
+
+instance ToJSON UserId
+instance FromJSON UserId
 
 data User 
   = User
@@ -38,6 +45,10 @@ data User
   , userEmail :: Text
   , userPass  :: Text
   }
+  deriving (Generic,Show)
+
+instance ToJSON User
+instance FromJSON User
 
 data UnverUser
   = UnverUser
@@ -89,18 +100,13 @@ registerUser req = do
       mayUser <- req...findByEmail $ req...regDto...rEmail
       case mayUser of
         Just _ -> return $ Left "User Exists"
-        Nothing -> do
-          emailSentRes <- req...sendEmail $ req...regDto...rEmail
-          case emailSentRes of
-            Left e  -> return $ Left e
-            Right _ -> do
-              uuid  <- nextRandom
-              token <- nextRandom
-              let unUser = UnverUser { uvUserId = UserId uuid, uvToken = VerToken token, uvEmail = req...regDto...rEmail , uvPass = req...regDto...rPass }
-              savedUser <- req...savePreUser $ unUser
-              case savedUser of
-                Left e  -> return $ Left e
-                Right _ -> return $ Right unUser
+        Nothing -> runExceptT $ do
+          emailSentRes <- ExceptT $ req...sendEmail $ req...regDto...rEmail
+          uuid         <- liftIO nextRandom
+          token        <- liftIO nextRandom
+          let unUser = UnverUser { uvUserId = UserId uuid, uvToken = VerToken token, uvEmail = req...regDto...rEmail , uvPass = req...regDto...rPass }
+          savedUser    <- ExceptT $ req...savePreUser $ unUser
+          return $ unUser
 
 
 data VerifyReq
