@@ -1,0 +1,1 @@
+# avtor-core-hs
