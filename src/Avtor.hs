@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE RecordWildCards   #-}
 module Avtor where
 
 import           Data.Text
@@ -135,12 +136,17 @@ data LoginReq =
   }
 
 login :: Login
-login req = do
-  userOptRes <- req...findUserByEmail $ req...loginReqDto...loginDtoEmail
+login req@LoginReq{..} = do
+  userOptRes <- findUserByEmail $ loginReqDto...loginDtoEmail
   case userOptRes of
     Left e          -> return $ Left e
-    Right (Just u)  -> return $ Right $ AuthToken "create_auth_token"
     Right (Nothing) -> return $ Left "User not found"
+    Right (Just u)  ->
+      if matchPassword (loginReqDto...loginDtoPass) (u...userPass)
+        then
+          return $ Right $ AuthToken "todo"
+        else
+          return $ Left "Passwords do not match"
 
 
 data LogoutReq = LogoutReq
