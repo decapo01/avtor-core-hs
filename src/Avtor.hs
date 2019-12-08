@@ -99,12 +99,12 @@ registerUser req = do
     else do
       mayUser <- req...findByEmail $ req...regDto...rEmail
       case mayUser of
-        Just _ -> return $ Left "User Exists"
+        Just _  -> return $ Left "User Exists"
         Nothing -> runExceptT $ do
           emailSentRes <- ExceptT $ req...sendEmail $ req...regDto...rEmail
           uuid         <- liftIO nextRandom
           token        <- liftIO nextRandom
-          let unUser = UnverUser { uvUserId = UserId uuid, uvToken = VerToken token, uvEmail = req...regDto...rEmail , uvPass = req...regDto...rPass }
+          let unUser    = mapRegistrationDataToUnverifiedUser uuid token (req...regDto)
           savedUser    <- ExceptT $ req...savePreUser $ unUser
           return $ unUser
 
@@ -121,12 +121,9 @@ verifyUser req = do
   mayUnverifiedUser <- req...findPreuserByToken $ req...vToken
   case mayUnverifiedUser of
     Nothing -> return $ Left "Unverified user could not be found"
-    Just u  -> do
+    Just u  -> runExceptT $ do
       let newUser = mapUnverifiedUserToUser u
-      savedUserRes <- req...saveUser $ newUser
-      case savedUserRes of
-        Left e  -> return $ Left e
-        Right u -> return $ Right u
+      ExceptT $ req...saveUser $ newUser
 
 
 
@@ -164,6 +161,16 @@ data AuthReq = AuthReq
 authenticate :: Authenticate
 authenticate req =
   req...createUserFromToken $ req...authReqToken
+
+
+mapRegistrationDataToUnverifiedUser :: UUID -> UUID -> RegisterDto -> UnverUser
+mapRegistrationDataToUnverifiedUser uuid token dto =
+  UnverUser 
+  { uvUserId = UserId uuid
+  , uvToken  = VerToken token
+  , uvEmail  = dto...rEmail
+  , uvPass   = dto...rPass 
+  }
 
 
 mapUnverifiedUserToUser :: UnverUser -> User
