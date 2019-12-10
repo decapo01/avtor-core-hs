@@ -170,6 +170,7 @@ login req@LoginReq{..} = runExceptT $ do
           -- add inserting login attempt
           throwE "Passwords do not match"
 
+          
 
 data LogoutReq = LogoutReq
   { logoutReqAuthToken :: AuthToken
