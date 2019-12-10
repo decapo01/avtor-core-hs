@@ -171,7 +171,6 @@ login req@LoginReq{..} = runExceptT $ do
           throwE "Passwords do not match"
 
 
-          
 data LogoutReq = LogoutReq
   { logoutReqAuthToken :: AuthToken
   , destroyAuthToken :: AuthToken -> IO (Either Text ())
