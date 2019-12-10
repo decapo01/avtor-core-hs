@@ -25,6 +25,7 @@ dependencies:
 - uuid
 - aeson
 - transformers
+- time
 
 library:
   source-dirs: src

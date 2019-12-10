@@ -11,6 +11,8 @@ import           Control.Monad.IO.Class (liftIO)
 import           GHC.Generics
 import           Data.Aeson
 import           Control.Monad.Trans.Except
+import           Control.Monad
+import           Data.Time (UTCTime)
 
 type RegisterUser = RegisterReq -> IO (Either Text UnverUser)
 type VerifyUser   = VerifyReq   -> IO (Either Text User)
@@ -33,14 +35,14 @@ newtype AuthToken = AuthToken
 
 newtype UserId
   = UserId
-  { userId :: UUID 
+  { userId :: UUID
   }
   deriving (Generic,Show)
 
 instance ToJSON UserId
 instance FromJSON UserId
 
-data User 
+data User
   = User
   { _userId   :: UserId
   , userEmail :: Text
@@ -82,32 +84,49 @@ data LoginDto
 
 data LogoutDto = LogoutDto
 
-data RegisterReq
-  = RegisterReq
-  { regDto      :: RegisterDto
-  , findByEmail :: Text -> IO (Maybe User)
-  , savePreUser :: UnverUser -> IO (Either Text ())
-  , sendEmail   :: Text -> IO (Either Text ())
+newtype LoginAttemptId =
+  LoginAttemptId
+  { loginAttemptId :: UUID
   }
+  deriving(Show)
+
+data LoginAttempt =
+  LoginAttempt
+  { _loginAttemptId :: LoginAttemptId
+  , address         :: Text
+  , createdOn       :: UTCTime
+  }
+  deriving (Show)
 
 (...) =  flip ($)
 
+
+data RegisterReq
+  = RegisterReq
+  { regDto       :: RegisterDto
+  , generateUUID :: IO UUID
+  , findByEmail  :: Text      -> IO (Maybe User)
+  , savePreUser  :: UnverUser -> IO (Either Text ())
+  , sendEmail    :: Text      -> IO (Either Text ())
+  }
+
 registerUser :: RegisterUser
-registerUser req = do
-  if req...regDto...rPass /= req...regDto...rConfirmPass
+registerUser req@RegisterReq{..} = do
+  if regDto...rPass /= regDto...rConfirmPass
     then
       return $ Left "Passwords do not match"
     else do
-      mayUser <- req...findByEmail $ req...regDto...rEmail
+      mayUser <- findByEmail $ regDto...rEmail
       case mayUser of
         Just _  -> return $ Left "User Exists"
         Nothing -> runExceptT $ do
-          emailSentRes <- ExceptT $ req...sendEmail $ req...regDto...rEmail
-          uuid         <- liftIO nextRandom
-          token        <- liftIO nextRandom
-          let unUser    = mapRegistrationDataToUnverifiedUser uuid token (req...regDto)
-          savedUser    <- ExceptT $ req...savePreUser $ unUser
-          return $ unUser
+          emailSentRes <- ExceptT $ sendEmail $ regDto...rEmail
+          uuid         <- liftIO generateUUID
+          token        <- liftIO generateUUID
+          let unUser    = mapRegistrationDataToUnverifiedUser uuid token regDto
+          savedUser    <- ExceptT $ savePreUser $ unUser
+          return $ 
+            unUser
 
 
 data VerifyReq
@@ -127,27 +146,29 @@ verifyUser req = do
       ExceptT $ req...saveUser $ newUser
 
 
-
 data LoginReq = 
   LoginReq
   { loginReqDto     :: LoginDto
+  , ipAddress       :: Text
+  , findAttempts    :: Text -> IO (Either Text [LoginAttempt])
   , findUserByEmail :: Text -> IO (Either Text (Maybe User))
   , matchPassword   :: Text -> Text -> Bool
   }
 
 login :: Login
-login req@LoginReq{..} = do
-  userOptRes <- findUserByEmail $ loginReqDto...loginDtoEmail
-  case userOptRes of
-    Left e          -> return $ Left e
-    Right (Nothing) -> return $ Left "User not found"
-    Right (Just u)  ->
+login req@LoginReq{..} = runExceptT $ do
+  loginAttempts <- ExceptT $ findAttempts ipAddress
+  guard $ (Prelude.length loginAttempts) > 10 -- figure out how to throw error here
+  userOpt       <- ExceptT $ findUserByEmail $ loginReqDto...loginDtoEmail
+  case userOpt of
+    Nothing -> throwE "User not found"
+    Just u  ->
       if matchPassword (loginReqDto...loginDtoPass) (u...userPass)
         then
-          return $ Right $ AuthToken "todo"
+          return $ AuthToken "todo"
         else
-          return $ Left "Passwords do not match"
-
+          -- add inserting login attempt
+          throwE "Passwords do not match"
 
 data LogoutReq = LogoutReq
   { logoutReqAuthToken :: AuthToken
