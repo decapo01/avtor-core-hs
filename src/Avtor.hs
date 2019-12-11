@@ -98,6 +98,19 @@ data LoginAttempt =
   }
   deriving (Show)
 
+newtype RestrictedIpId =
+  RestrictedIpId
+  { restrictedIpId :: UUID
+  }
+  deriving (Show)
+
+data RestrictedIp =
+  RestrictedIp
+  { _restrictedIpId :: RestrictedIpId
+  , restrictedIp    :: Text
+  }
+  deriving (Show)
+
 (...) =  flip ($)
 
 
@@ -148,29 +161,45 @@ verifyUser req = do
 
 data LoginReq = 
   LoginReq
-  { loginReqDto     :: LoginDto
-  , ipAddress       :: Text
-  , findAttempts    :: Text -> IO (Either Text [LoginAttempt])
-  , findUserByEmail :: Text -> IO (Either Text (Maybe User))
-  , matchPassword   :: Text -> Text -> Bool
+  { loginReqDto          :: LoginDto
+  , ipAddress            :: Text
+  , findRestrictedIp     :: Text -> IO (Either Text (Maybe RestrictedIp))
+  , findAttempts         :: Text -> IO (Either Text [LoginAttempt])
+  , findUserByEmail      :: Text -> IO (Either Text (Maybe User))
+  , matchPassword        :: Text -> Text -> Bool
+  , createDate           :: IO UTCTime
+  , insertAttempt        :: LoginAttempt -> IO (Either Text ())
+  , loginReqGenerateUUID :: IO UUID
   }
 
 login :: Login
 login req@LoginReq{..} = runExceptT $ do
-  loginAttempts <- ExceptT $ findAttempts ipAddress
-  guard $ (Prelude.length loginAttempts) > 10 -- figure out how to throw error here
-  userOpt       <- ExceptT $ findUserByEmail $ loginReqDto...loginDtoEmail
-  case userOpt of
-    Nothing -> throwE "User not found"
-    Just u  ->
-      if matchPassword (loginReqDto...loginDtoPass) (u...userPass)
-        then
-          return $ AuthToken "todo"
-        else
-          -- add inserting login attempt
-          throwE "Passwords do not match"
+  maybeBadIp    <- ExceptT $ findRestrictedIp ipAddress
+  case maybeBadIp of
+    Just _ -> throwE "Restricted Ip Attempt"
+    Nothing -> do
+      loginAttempts <- ExceptT $ findAttempts ipAddress
+      guard $ (Prelude.length loginAttempts) > 10 -- figure out how to throw error here
+      userOpt       <- ExceptT $ findUserByEmail $ loginReqDto...loginDtoEmail
+      case userOpt of
+        Nothing -> do
+          attemptId <- liftIO loginReqGenerateUUID
+          now       <- liftIO createDate
+          let attempt = LoginAttempt (LoginAttemptId attemptId) ipAddress now
+          _ <- ExceptT $ insertAttempt attempt
+          throwE "User not found"
+        Just u  ->
+          if matchPassword (loginReqDto...loginDtoPass) (u...userPass)
+            then
+              return $ AuthToken "todo"
+            else do
+              attemptId <- liftIO loginReqGenerateUUID
+              now       <- liftIO createDate
+              let attempt = LoginAttempt (LoginAttemptId attemptId) ipAddress now
+              _ <- ExceptT $ insertAttempt attempt
+              throwE "Passwords do not match"
 
-          
+
 
 data LogoutReq = LogoutReq
   { logoutReqAuthToken :: AuthToken
