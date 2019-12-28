@@ -14,11 +14,39 @@ import           Control.Monad.Trans.Except
 import           Control.Monad
 import           Data.Time (UTCTime)
 
+type SignUp 
+  =  SignUpDto
+  -> (Text -> IO (Maybe User))                     -- findUserById
+  -> (Text -> IO (Either AvtorError Text))         -- hashPassword
+  -> (() -> IO UUID)
+  -> (() -> IO UUID)                               -- genereateToken
+  -> (() -> IO UUID)                               -- generateAccountId
+  -> (UnverifiedUser -> IO (Either AvtorError ())) -- insertUser
+  -> (Text -> IO (Either AvtorError ()))           -- sendEmail
+  -> (UserId -> IO (Either AvtorError ()))         -- removeUserIfEmailFails
+  -> IO (Either AvtorError ())                     -- avtor error
+
+type VerifyUser
+  =  VerificationToken
+  -> (VerificationToken -> IO (Maybe UnverifiedUser))
+  -> (User -> IO (Either AvtorError ()))
+  -> IO (Either AvtorError ())
+
+type SignIn
+  =  SignInDto
+  -> (Text -> IO (Maybe User))  -- findUserByEmail
+  -> (Text -> Text -> Bool)     -- checkHashedPassword
+  -> (() -> IO Text)            -- generateJwt
+  -> IO (Either AvtorError Text)
+
+type SignOut
+  = Text      -- Jwt Session to delete
+
 type CreateAccount = CreateAccountReq -> IO (Either AvtorError Account)
 type UpdateAccount = UpdateAccountReq -> IO (Either AvtorError Account)
 
-type RegisterUser = RegisterReq -> IO (Either AvtorError UnverUser)
-type VerifyUser   = VerifyReq   -> IO (Either AvtorError User)
+type RegisterUser = RegisterReq -> IO (Either AvtorError UnverifiedUser)
+-- type VerifyUser   = VerifyReq   -> IO (Either AvtorError User)
 
 type Login  = LoginReq  -> IO (Either AvtorError AuthToken)
 type Logout = LogoutReq -> IO (Either AvtorError ())
@@ -41,7 +69,7 @@ data AvtorError
 
 newtype AccountId
   = AccountId
-  { accountId :: UUID
+  { _accountId :: UUID
   }
   deriving (Show,Generic)
 
@@ -49,9 +77,31 @@ instance ToJSON   AccountId
 instance FromJSON AccountId
 
 
+newtype VerificationToken
+  = VerificationToken
+  { verificationToke :: UUID 
+  }
+  deriving (Show,Generic)
+
+
+data SignUpDto
+  = SignUpDto
+  { signUpDtoEmail           :: Text
+  , signUpDtoPassword        :: Text
+  , signUpDtoConfirmPassword :: Text
+  , signUpDtoAccountId       :: Maybe UUID
+  }
+  deriving (Show)
+
+data SignInDto
+  = SignInDto
+  { signInDtoEmail    :: Text
+  , signInDtoPassword :: Text
+  }
+
 data Account
   = Account
-  { _accountId  :: AccountId
+  { accountId   :: AccountId
   , accountName :: Text
   }
   deriving (Show)
@@ -69,7 +119,7 @@ newtype AuthToken = AuthToken
 
 newtype UserId
   = UserId
-  { userId :: UUID
+  { _userId :: UUID
   }
   deriving (Generic,Show)
 
@@ -78,7 +128,7 @@ instance FromJSON UserId
 
 data User
   = User
-  { _userId   :: UserId
+  { userId   :: UserId
   , userEmail :: Text
   , userPass  :: Text
   , userAccountId :: AccountId
@@ -88,13 +138,13 @@ data User
 instance ToJSON User
 instance FromJSON User
 
-data UnverUser
-  = UnverUser
-  { uvUserId    :: UserId
-  , uvEmail     :: Text
-  , uvPass      :: Text
-  , uvToken     :: VerToken
-  , uvAccountId :: AccountId
+data UnverifiedUser
+  = UnverifiedUser
+  { unverifiedUserId        :: UserId
+  , unverifiedUserEmail     :: Text
+  , unverifiedUserPassword  :: Text
+  , unverifiedUserToken     :: VerToken
+  , unverifiedUserAccountId :: AccountId
   }
 
 data LoggedInUser
@@ -151,6 +201,56 @@ data RestrictedIp =
 (...) = flip ($)
 
 
+
+signUp :: SignUp
+signUp dto findUserById hashPassword generateUuid generateToken generateAccountId insertUser sendEmail removeUserIfEmailFails = runExceptT $ do
+  maybeUser <- liftIO $ findUserById (signUpDtoEmail dto)
+  case maybeUser of
+    Just _ -> throwE UserExists
+    Nothing -> do
+      uuid      <- liftIO  $ generateUuid ()
+      hash      <- ExceptT $ hashPassword (signUpDtoPassword dto)
+      token     <- liftIO  $ generateToken ()
+      accountId <- liftIO  $ accountIdIO
+      _         <- ExceptT $ insertUser $ mapSignUpDtoToUnverifiedUser accountId uuid token dto
+      emailSent <- liftIO  $ sendEmail (signUpDtoEmail dto)
+      case emailSent of
+        Left _  -> ExceptT $ removeUserIfEmailFails $ UserId uuid
+        Right _ -> return ()
+  where
+    accountIdIO = case (signUpDtoAccountId dto) of
+      Just accountUuid -> return accountUuid
+      Nothing          -> generateAccountId ()
+
+
+mapSignUpDtoToUnverifiedUser :: UUID -> UUID -> UUID -> SignUpDto -> UnverifiedUser
+mapSignUpDtoToUnverifiedUser accountId uuid token dto =
+  UnverifiedUser
+  { unverifiedUserId        = UserId { _userId = uuid }
+  , unverifiedUserEmail     = (signUpDtoEmail dto)
+  , unverifiedUserPassword  = (signUpDtoPassword dto)
+  , unverifiedUserToken     = VerToken token
+  , unverifiedUserAccountId = AccountId accountId
+  }
+
+verifyUser :: VerifyUser
+verifyUser token findUserByVerificationToken insertUser = runExceptT $ do
+  maybeUser <- liftIO $ findUserByVerificationToken token
+  case maybeUser of
+    Nothing -> throwE UserNotFound
+    Just unverifiedUser ->
+      ExceptT $ insertUser $ mapUnverifiedUserToUser unverifiedUser
+
+
+signIn :: SignIn
+signIn dto findUserByEmail passwordsMatch generateJwt = do
+  maybeUser <- findUserByEmail (signInDtoEmail dto)
+  case maybeUser of
+    Nothing   -> return $ Left UserNotFound
+    Just user -> do
+      jwt <- generateJwt ()
+      return $ Right jwt
+
 data CreateAccountReq
   = CreateAccountReq
   { createAccountReqName    :: Text
@@ -183,11 +283,11 @@ data UpdateAccountReq
 
 updateAccount :: UpdateAccount
 updateAccount req@UpdateAccountReq{..} = runExceptT $ do
-  maybeAccount <- ExceptT $ updateAccountReqFindById $ modifiedAccount..._accountId
+  maybeAccount <- ExceptT $ updateAccountReqFindById $ modifiedAccount...accountId
   case maybeAccount of
     Nothing -> throwE AccountNotFound
     Just _  -> do
-      maybeOtherAccount <- ExceptT $ findOthersByName (modifiedAccount..._accountId) (modifiedAccount...accountName)
+      maybeOtherAccount <- ExceptT $ findOthersByName (modifiedAccount...accountId) (modifiedAccount...accountName)
       case maybeOtherAccount of
         Just _  -> throwE AccountAlreadyExists
         Nothing -> do
@@ -200,9 +300,9 @@ data RegisterReq
   { regDto       :: RegisterDto
   , registerReqAccountId :: UUID
   , generateUUID :: IO UUID
-  , findByEmail  :: Text      -> IO (Maybe User)
-  , savePreUser  :: UnverUser -> IO (Either AvtorError ())
-  , sendEmail    :: Text      -> IO (Either AvtorError ())
+  , findByEmail  :: Text           -> IO (Maybe User)
+  , savePreUser  :: UnverifiedUser -> IO (Either AvtorError ())
+  , sendEmail    :: Text           -> IO (Either AvtorError ())
   }
 
 registerUser :: RegisterUser
@@ -227,18 +327,18 @@ registerUser req@RegisterReq{..} = do
 data VerifyReq
   = VerifyReq
   { vToken              :: VerToken
-  , findPreuserByToken  :: VerToken  -> IO (Maybe UnverUser)
+  , findPreuserByToken  :: VerToken  -> IO (Maybe UnverifiedUser)
   , saveUser            :: User      -> IO (Either AvtorError User)
   }
 
-verifyUser :: VerifyUser
-verifyUser req = do
-  mayUnverifiedUser <- req...findPreuserByToken $ req...vToken
-  case mayUnverifiedUser of
-    Nothing -> return $ Left UserNotFound
-    Just u  -> runExceptT $ do
-      let newUser = mapUnverifiedUserToUser u
-      ExceptT $ req...saveUser $ newUser
+-- verifyUser :: VerifyUser
+-- verifyUser verificationToken findByVerificationToken insertUser = do
+--   mayUnverifiedUser <- findByVerificationToken $ verificationToken
+--   case mayUnverifiedUser of
+--     Nothing -> return $ Left UserNotFound
+--     Just u  -> runExceptT $ do
+--       let newUser = mapUnverifiedUserToUser u
+--       ExceptT $ insertUser $ newUser
 
 
 data LoginReq = 
@@ -306,29 +406,29 @@ authenticate req =
   req...createUserFromToken $ req...authReqToken
 
 
-mapRegistrationDataToUnverifiedUser :: UUID -> UUID -> UUID -> RegisterDto -> UnverUser
+mapRegistrationDataToUnverifiedUser :: UUID -> UUID -> UUID -> RegisterDto -> UnverifiedUser
 mapRegistrationDataToUnverifiedUser uuid accountId token dto =
-  UnverUser 
-  { uvUserId = UserId uuid
-  , uvToken  = VerToken token
-  , uvAccountId = AccountId accountId
-  , uvEmail  = dto...rEmail
-  , uvPass   = dto...rPass 
+  UnverifiedUser 
+  { unverifiedUserId        = UserId uuid
+  , unverifiedUserToken     = VerToken token
+  , unverifiedUserAccountId = AccountId accountId
+  , unverifiedUserEmail     = dto...rEmail
+  , unverifiedUserPassword  = dto...rPass 
   }
 
 
-mapUnverifiedUserToUser :: UnverUser -> User
-mapUnverifiedUserToUser unverUser =
+mapUnverifiedUserToUser :: UnverifiedUser -> User
+mapUnverifiedUserToUser unverifiedUser =
   User 
-  { _userId   = unverUser...uvUserId
-  , userEmail = unverUser...uvEmail
-  , userPass  = unverUser...uvPass
-  , userAccountId = unverUser...uvAccountId
+  { userId        = unverifiedUser...unverifiedUserId
+  , userEmail     = unverifiedUser...unverifiedUserEmail
+  , userPass      = unverifiedUser...unverifiedUserPassword
+  , userAccountId = unverifiedUser...unverifiedUserAccountId
   }
 
 mapUserToLoginUser :: User -> LoggedInUser
 mapUserToLoginUser user =
   LoggedInUser
-  { loggedInUserId    = user..._userId
+  { loggedInUserId    = user...userId
   , loggedInUserEmail = user...userEmail
   }
