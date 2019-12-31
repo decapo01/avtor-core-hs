@@ -34,6 +34,11 @@ type VerifyUser
 
 type SignIn
   =  SignInDto
+  -> Text                        -- IpAddress
+  -> (Text -> IO [LoginAttempt]) -- findAllLoginAttempts
+  -> (LoginAttempt -> IO ())     -- insertLoginAttempt
+  -> (Text -> IO ())             -- insertIpAddress
+  -> (Text -> IO (Maybe RestrictedIpId)) -- findBlockedIp
   -> (Text -> IO (Maybe User))  -- findUserByEmail
   -> (Text -> Text -> Bool)     -- checkHashedPassword
   -> (() -> IO Text)            -- generateJwt
@@ -119,9 +124,9 @@ instance FromJSON UserId
 
 data User
   = User
-  { userId   :: UserId
-  , userEmail :: Text
-  , userPass  :: Text
+  { userId        :: UserId
+  , userEmail     :: Text
+  , userPass      :: Text
   , userAccountId :: AccountId
   }
   deriving (Generic,Show)
@@ -221,14 +226,29 @@ verifyUser token findUserByVerificationToken insertUser = runExceptT $ do
       ExceptT $ insertUser $ mapUnverifiedUserToUser unverifiedUser
 
 
+
 signIn :: SignIn
-signIn dto findUserByEmail passwordsMatch generateJwt = do
-  maybeUser <- findUserByEmail (signInDtoEmail dto)
-  case maybeUser of
-    Nothing   -> return $ Left UserNotFound
-    Just user -> do
-      jwt <- generateJwt ()
-      return $ Right jwt
+signIn dto ipAddress findAllLoginAttempts insertLoginAttempt insertRestrictedIp findBlockedIp findUserByEmail passwordsMatch generateJwt = runExceptT $ do
+  maybeBlockedIp <- liftIO $ findBlockedIp ipAddress
+  case maybeBlockedIp of
+    Just _ -> throwE IpRestricted
+    Nothing -> do
+      loginAttempts <- liftIO $ findAllLoginAttempts ipAddress
+      if (Prelude.length loginAttempts) >= 10
+        then do
+          _ <- liftIO $ insertRestrictedIp ipAddress
+          throwE IpRestricted
+        else do
+          maybeUser <- liftIO $ findUserByEmail (signInDtoEmail dto)
+          case maybeUser of
+            Nothing   -> throwE UserNotFound
+            Just user -> do
+              if passwordsMatch (signInDtoPassword dto) (userPass user)
+                then do
+                  jwt <- liftIO $ generateJwt ()
+                  return jwt
+                else
+                  throwE PasswordIncorrect
 
 
 data AuthReq = AuthReq
