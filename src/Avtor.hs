@@ -237,7 +237,7 @@ signIn dto ipAddress findAllLoginAttempts insertLoginAttempt insertRestrictedIp 
       if (Prelude.length loginAttempts) >= 10
         then do
           _ <- liftIO $ insertRestrictedIp ipAddress
-          throwE IpRestricted
+          throwE LoginAttemptsExceeded
         else do
           maybeUser <- liftIO $ findUserByEmail (signInDtoEmail dto)
           case maybeUser of
