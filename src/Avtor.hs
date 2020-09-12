@@ -196,7 +196,6 @@ data RestrictedIp =
 
 (...) = flip ($)
 
-
 signUp :: SignUp
 signUp dto findUserById hashPassword generateUuid generateToken generateAccountId insertUser sendEmail removeUserIfEmailFails = runExceptT $ do
   maybeUser <- liftIO $ findUserById (signUpDtoEmail dto)
@@ -277,23 +276,23 @@ mapRegistrationDataToUnverifiedUser uuid accountId token dto =
   { unverifiedUserId        = UserId uuid
   , unverifiedUserToken     = VerToken token
   , unverifiedUserAccountId = AccountId accountId
-  , unverifiedUserEmail     = dto...rEmail
-  , unverifiedUserPassword  = dto...rPass 
+  , unverifiedUserEmail     = rEmail dto
+  , unverifiedUserPassword  = rPass dto 
   }
 
 
 mapUnverifiedUserToUser :: UnverifiedUser -> User
 mapUnverifiedUserToUser unverifiedUser =
   User 
-  { userId        = unverifiedUser...unverifiedUserId
-  , userEmail     = unverifiedUser...unverifiedUserEmail
-  , userPass      = unverifiedUser...unverifiedUserPassword
-  , userAccountId = unverifiedUser...unverifiedUserAccountId
+  { userId        = unverifiedUserId unverifiedUser
+  , userEmail     = unverifiedUserEmail unverifiedUser
+  , userPass      = unverifiedUserPassword unverifiedUser
+  , userAccountId = unverifiedUserAccountId unverifiedUser
   }
 
 mapUserToLoginUser :: User -> LoggedInUser
 mapUserToLoginUser user =
   LoggedInUser
-  { loggedInUserId    = user...userId
-  , loggedInUserEmail = user...userEmail
+  { loggedInUserId    = userId user
+  , loggedInUserEmail = userEmail user
   }
