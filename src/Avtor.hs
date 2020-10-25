@@ -75,7 +75,7 @@ instance FromJSON AccountId
 
 newtype VerificationToken
   = VerificationToken
-  { verificationToke :: UUID 
+  { verificationToken :: UUID 
   }
   deriving (Show, Generic, Eq)
 
