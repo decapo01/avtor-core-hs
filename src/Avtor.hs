@@ -67,7 +67,7 @@ newtype AccountId
   = AccountId
   { _accountId :: UUID
   }
-  deriving (Show,Generic)
+  deriving (Show, Generic, Eq)
 
 instance ToJSON   AccountId
 instance FromJSON AccountId
@@ -77,7 +77,7 @@ newtype VerificationToken
   = VerificationToken
   { verificationToke :: UUID 
   }
-  deriving (Show,Generic)
+  deriving (Show, Generic, Eq)
 
 
 data SignUpDto
@@ -106,18 +106,18 @@ newtype VerToken
   = VerToken
   { verToken :: UUID
   }
-  deriving (Show,Generic)
+  deriving (Show, Generic, Eq)
 
 newtype AuthToken = AuthToken
   { authToken :: Text
   }
-  deriving (Show,Generic)
+  deriving (Show, Generic, Eq)
 
 newtype UserId
   = UserId
   { _userId :: UUID
   }
-  deriving (Generic,Show)
+  deriving (Generic, Show, Eq)
 
 instance ToJSON UserId
 instance FromJSON UserId
@@ -139,7 +139,7 @@ data UnverifiedUser
   { unverifiedUserId        :: UserId
   , unverifiedUserEmail     :: Text
   , unverifiedUserPassword  :: Text
-  , unverifiedUserToken     :: VerToken
+  , unverifiedUserToken     :: VerificationToken
   , unverifiedUserAccountId :: AccountId
   }
 
@@ -170,7 +170,7 @@ newtype LoginAttemptId =
   LoginAttemptId
   { loginAttemptId :: UUID
   }
-  deriving(Show)
+  deriving(Show, Eq)
 
 data LoginAttempt =
   LoginAttempt
@@ -178,20 +178,20 @@ data LoginAttempt =
   , address         :: Text
   , createdOn       :: UTCTime
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 newtype RestrictedIpId =
   RestrictedIpId
   { restrictedIpId :: UUID
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 data RestrictedIp =
   RestrictedIp
   { _restrictedIpId :: RestrictedIpId
   , restrictedIp    :: Text
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 
 (...) = flip ($)
@@ -266,7 +266,7 @@ mapSignUpDtoToUnverifiedUser    accountId uuid    token   dto =
   { unverifiedUserId        = UserId { _userId = uuid }
   , unverifiedUserEmail     = (signUpDtoEmail dto)
   , unverifiedUserPassword  = (signUpDtoPassword dto)
-  , unverifiedUserToken     = VerToken token
+  , unverifiedUserToken     = VerificationToken token
   , unverifiedUserAccountId = AccountId accountId
   }
 
@@ -274,7 +274,7 @@ mapRegistrationDataToUnverifiedUser :: UUID -> UUID -> UUID -> RegisterDto -> Un
 mapRegistrationDataToUnverifiedUser uuid accountId token dto =
   UnverifiedUser 
   { unverifiedUserId        = UserId uuid
-  , unverifiedUserToken     = VerToken token
+  , unverifiedUserToken     = VerificationToken token
   , unverifiedUserAccountId = AccountId accountId
   , unverifiedUserEmail     = rEmail dto
   , unverifiedUserPassword  = rPass dto 
