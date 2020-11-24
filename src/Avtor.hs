@@ -168,13 +168,13 @@ data LogoutDto = LogoutDto
 
 newtype LoginAttemptId =
   LoginAttemptId
-  { loginAttemptId :: UUID
+  { _loginAttemptId :: UUID
   }
   deriving(Show, Eq)
 
 data LoginAttempt =
   LoginAttempt
-  { _loginAttemptId :: LoginAttemptId
+  { loginAttemptId :: LoginAttemptId
   , address         :: Text
   , createdOn       :: UTCTime
   }
