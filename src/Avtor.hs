@@ -170,7 +170,7 @@ newtype LoginAttemptId =
   LoginAttemptId
   { _loginAttemptId :: UUID
   }
-  deriving(Show, Eq)
+  deriving(Show, Eq, Generic)
 
 data LoginAttempt =
   LoginAttempt
@@ -178,7 +178,7 @@ data LoginAttempt =
   , address         :: Text
   , createdOn       :: UTCTime
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 newtype RestrictedIpId =
   RestrictedIpId
