@@ -226,25 +226,41 @@ verifyUser token findUserByVerificationToken insertUser = runExceptT $ do
 
 
 
-signIn :: SignIn
-signIn dto ipAddress findAllLoginAttempts insertLoginAttempt insertRestrictedIp findBlockedIp findUserByEmail passwordsMatch generateJwt = runExceptT $ do
-  maybeBlockedIp <- liftIO $ findBlockedIp ipAddress
+data SignInDeps
+  = SignInDeps
+  { signInDepsFindAllLoginAttemptsByIp :: Text -> IO [LoginAttempt]
+  , signInDepsInsertLoginAttempt       :: LoginAttempt -> IO ()
+  , signInDepsGenerateRestrictedIpUuid :: () -> IO UUID
+  , signInDepsInsertRestrictedIp       :: RestrictedIp -> IO ()
+  , signInDepsFindRestrictedIpByIp     :: Text -> IO (Maybe RestrictedIp)
+  , signInDepsFindUserByUsername       :: Text -> IO (Maybe User)
+  , signInDepsCheckIfPasswordsMatch    :: Text -> Text -> Bool
+  , signInDepsGenerateJwt              :: () -> IO Text
+  }
+
+signIn :: SignInDeps
+       -> SignInDto
+       -> Text
+       -> IO (Either AvtorError Text)
+signIn deps@SignInDeps{..} dto ipAddress = runExceptT $ do
+  maybeBlockedIp <- liftIO $ signInDepsFindRestrictedIpByIp ipAddress
   case maybeBlockedIp of
     Just _ -> throwE IpRestricted
     Nothing -> do
-      loginAttempts <- liftIO $ findAllLoginAttempts ipAddress
-      if (Prelude.length loginAttempts) >= 10
+      loginAttempts <- liftIO $ signInDepsFindAllLoginAttemptsByIp ipAddress
+      if (Prelude.length loginAttempts) >= 10 -- todo: maybe make this configurable
         then do
-          _ <- liftIO $ insertRestrictedIp ipAddress
+          restrictedIpUuid <- liftIO $ signInDepsGenerateRestrictedIpUuid ()
+          _ <- liftIO $ signInDepsInsertRestrictedIp $ RestrictedIp (RestrictedIpId restrictedIpUuid) ipAddress
           throwE LoginAttemptsExceeded
         else do
-          maybeUser <- liftIO $ findUserByEmail (signInDtoEmail dto)
+          maybeUser <- liftIO $ signInDepsFindUserByUsername (signInDtoEmail dto)
           case maybeUser of
             Nothing   -> throwE UserNotFound
             Just user -> do
-              if passwordsMatch (signInDtoPassword dto) (userPass user)
+              if signInDepsCheckIfPasswordsMatch (signInDtoPassword dto) (userPass user)
                 then do
-                  jwt <- liftIO $ generateJwt ()
+                  jwt <- liftIO $ signInDepsGenerateJwt ()
                   return jwt
                 else
                   throwE PasswordIncorrect
