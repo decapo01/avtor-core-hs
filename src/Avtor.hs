@@ -184,14 +184,14 @@ newtype RestrictedIpId =
   RestrictedIpId
   { _restrictedIpId :: UUID
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 data RestrictedIp =
   RestrictedIp
   { restrictedIpId :: RestrictedIpId
   , restrictedIp    :: Text
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 
 (...) = flip ($)
