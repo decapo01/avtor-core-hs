@@ -182,13 +182,13 @@ data LoginAttempt =
 
 newtype RestrictedIpId =
   RestrictedIpId
-  { restrictedIpId :: UUID
+  { _restrictedIpId :: UUID
   }
   deriving (Show, Eq)
 
 data RestrictedIp =
   RestrictedIp
-  { _restrictedIpId :: RestrictedIpId
+  { restrictedIpId :: RestrictedIpId
   , restrictedIp    :: Text
   }
   deriving (Show, Eq)
