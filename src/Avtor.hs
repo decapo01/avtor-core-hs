@@ -238,32 +238,38 @@ data SignInDeps
   , signInDepsGenerateJwt              :: () -> IO Text
   }
 
+data SignInError
+  = SignInErrorIpRestricted
+  | SignInErrorLoginAttemptsExceeded
+  | SignInErrorUserNotFound
+  | SignInErrorIncorrectPassword
+
 signIn :: SignInDeps
        -> SignInDto
        -> Text
-       -> IO (Either AvtorError Text)
+       -> IO (Either SignInError Text)
 signIn deps@SignInDeps{..} dto ipAddress = runExceptT $ do
   maybeBlockedIp <- liftIO $ signInDepsFindRestrictedIpByIp ipAddress
   case maybeBlockedIp of
-    Just _ -> throwE IpRestricted
+    Just _ -> throwE SignInErrorIpRestricted
     Nothing -> do
       loginAttempts <- liftIO $ signInDepsFindAllLoginAttemptsByIp ipAddress
       if (Prelude.length loginAttempts) >= 10 -- todo: maybe make this configurable
         then do
           restrictedIpUuid <- liftIO $ signInDepsGenerateRestrictedIpUuid ()
           _ <- liftIO $ signInDepsInsertRestrictedIp $ RestrictedIp (RestrictedIpId restrictedIpUuid) ipAddress
-          throwE LoginAttemptsExceeded
+          throwE SignInErrorLoginAttemptsExceeded
         else do
           maybeUser <- liftIO $ signInDepsFindUserByUsername (signInDtoEmail dto)
           case maybeUser of
-            Nothing   -> throwE UserNotFound
+            Nothing   -> throwE SignInErrorUserNotFound
             Just user -> do
               if signInDepsCheckIfPasswordsMatch (signInDtoPassword dto) (userPass user)
                 then do
                   jwt <- liftIO $ signInDepsGenerateJwt ()
                   return jwt
                 else
-                  throwE PasswordIncorrect
+                  throwE SignInErrorIncorrectPassword
 
 
 data AuthReq = AuthReq
