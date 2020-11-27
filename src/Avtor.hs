@@ -147,6 +147,7 @@ data LoggedInUser
   = LoggedInUser
   { loggedInUserId    :: UserId
   , loggedInUserEmail :: Text
+  , loggedInUserRoles :: [Text]
   }
 
 data RegisterDto
@@ -247,7 +248,7 @@ data SignInError
 signIn :: SignInDeps
        -> SignInDto
        -> Text
-       -> IO (Either SignInError Text)
+       -> IO (Either SignInError LoggedInUser)
 signIn deps@SignInDeps{..} dto ipAddress = runExceptT $ do
   maybeBlockedIp <- liftIO $ signInDepsFindRestrictedIpByIp ipAddress
   case maybeBlockedIp of
@@ -267,7 +268,7 @@ signIn deps@SignInDeps{..} dto ipAddress = runExceptT $ do
               if signInDepsCheckIfPasswordsMatch (signInDtoPassword dto) (userPass user)
                 then do
                   jwt <- liftIO $ signInDepsGenerateJwt ()
-                  return jwt
+                  return $ mapUserToLoginUser user
                 else
                   throwE SignInErrorIncorrectPassword
 
@@ -317,4 +318,5 @@ mapUserToLoginUser user =
   LoggedInUser
   { loggedInUserId    = userId user
   , loggedInUserEmail = userEmail user
+  , loggedInUserRoles = []
   }
